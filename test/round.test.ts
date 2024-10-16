@@ -2,8 +2,8 @@ import { it, expect, describe } from 'vitest'
 import { TestWebSocket, wsp } from './wsp'
 
 export type LobbyActions = {
-    hadd(time_control: string): Promise<void>,
-    hjoin(id: string): Promise<void>,
+    hadd(time_control: string): void,
+    hjoin(id: string): void,
     pull_hlist(): Promise<any>,
     pull_hadd(): Promise<any>,
     pull_hrem(): Promise<any>,
@@ -15,44 +15,51 @@ export type SiteActions = {}
 export type RoundActions = {}
 
 export type WebsiteActions = {
-    page_lobby(op: (_: LobbyActions) => Promise<void>): Promise<void>,
-    page_site(op: (_: SiteActions) => Promise<void>): Promise<void>,
-    page_round(id: string, op: (_: RoundActions) => Promise<void>): Promise<void>
+    page_lobby(): void
+    page_site(): void
+    page_round(id: string): void
 }
 
-export function mwac(op: (_: WebsiteActions) => Promise<void>) {
-        return wsp(async tws =>
-            op({
-                async page_lobby(op) {
-                    return op(await lobby_actions(tws))
-                },
-                async page_site(op) {
-                    return op(await site_actions(tws))
-                },
-                async page_round(id, op) {
-                    return op(await round_actions(id, tws))
-                }
-            })
-        )
-}
+async function wac(): Promise<TestWebSocket & LobbyActions & SiteActions & RoundActions & WebsiteActions> {
+    let tws = await wsp()
 
-export async function round_actions(id: string, tws: TestWebSocket) {
-    tws.path(`round$${id}`)
-    return {}
-}
-
-export async function site_actions(tws: TestWebSocket) {
-    tws.path('site')
-    return {}
-}
-
-export async function lobby_actions(tws: TestWebSocket) {
-    tws.path('lobby')
     return {
-        async hadd(time_control: string) {
+        ...website_actions(tws),
+        ...site_actions(tws),
+        ...lobby_actions(tws),
+        ...round_actions(tws),
+        ...tws
+    }
+}
+
+function website_actions(tws: TestWebSocket): WebsiteActions {
+    return {
+        page_site() {
+            tws.path('site')
+        },
+        page_lobby() {
+            tws.path('lobby')
+        },
+        page_round(id: string) {
+            tws.path(`round$${id}`)
+        }
+    }
+}
+
+function round_actions(tws: TestWebSocket): RoundActions {
+    return {}
+}
+
+function site_actions(tws: TestWebSocket): SiteActions {
+    return {}
+}
+
+function lobby_actions(tws: TestWebSocket): LobbyActions {
+    return {
+        hadd(time_control: string) {
             tws.send({t: 'hadd', d: time_control})
         },
-        async hjoin(id: string): Promise<void> {
+        hjoin(id: string) {
             tws.send({t: 'hjoin', d: id})
         },
         async pull_hlist(): Promise<void> {
@@ -70,36 +77,54 @@ export async function lobby_actions(tws: TestWebSocket) {
     }
 }
 
-it.only('works', async () => {
+describe('round', { retry: 8}, () => {
+    it('works', async () => {
 
-    await mwac(async wac => {
+        let w = await wac()
 
-        let game_redirect
+        w.page_lobby()
+        w.hadd('threetwo')
 
-        await wac.page_lobby(async lobby => {
+        let hadd = await w.pull_hadd()
 
-            await lobby.hadd('threetwo')
+        expect(hadd).toBeTruthy()
 
-            let hadd = await lobby.pull_hadd()
+        let w2 = await wac()
+        w2.page_lobby()
+        w2.hjoin(hadd.id)
 
-            expect(hadd).toBeTruthy()
+        let game_redirect = await w.pull_redirect()
 
-            await mwac(async wac2 => {
-                await wac2.page_lobby(async l2 => {
-                    await l2.hjoin(hadd.id)
-                })
-            })
+        expect(game_redirect).toBeTruthy()
 
-            game_redirect = await lobby.pull_redirect(1000)
-
-            expect(game_redirect).toBeTruthy()
-        })
-
-        await wac.page_round(game_redirect, async round => {
-
-        })
+        await w.page_round(game_redirect)
 
 
+        await Promise.all([w.close(), w2.close()])
+    })
+
+
+    it('works', async () => {
+
+        let w = await wac()
+        let w2 = await wac()
+
+        w.page_lobby()
+        w2.page_lobby()
+
+        w.hadd('threetwo')
+        let hadd = await w.pull_hadd()
+        w2.hjoin(hadd.id)
+
+        let game_redirect = await w.pull_redirect()
+
+        expect(game_redirect).toBeTruthy()
+
+        await w.page_round(game_redirect)
+        await w2.page_round(game_redirect)
+
+
+        await Promise.all([w.close(), w2.close()])
     })
 
 })
