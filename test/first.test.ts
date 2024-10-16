@@ -2,7 +2,7 @@ import { it, expect, describe } from 'vitest'
 import { WebSocket } from 'ws'
 import { TestWebSocket, wsp, url } from './wsp'
 
-describe('first', { retry: 8 }, () => {
+describe('first', () => {
     it('sets sid', async () => {
         let { headers } = await fetch(`${url}/`).then(async value => {
             return {

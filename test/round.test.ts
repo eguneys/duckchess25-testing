@@ -1,83 +1,8 @@
 import { it, expect, describe } from 'vitest'
-import { TestWebSocket, wsp } from './wsp'
+import { wac, get } from './wsp'
 
-export type LobbyActions = {
-    hadd(time_control: string): void,
-    hjoin(id: string): void,
-    pull_hlist(): Promise<any>,
-    pull_hadd(): Promise<any>,
-    pull_hrem(): Promise<any>,
-    pull_redirect(delay?: number): Promise<string>,
-}
 
-export type SiteActions = {}
-
-export type RoundActions = {}
-
-export type WebsiteActions = {
-    page_lobby(): void
-    page_site(): void
-    page_round(id: string): void
-}
-
-async function wac(): Promise<TestWebSocket & LobbyActions & SiteActions & RoundActions & WebsiteActions> {
-    let tws = await wsp()
-
-    return {
-        ...website_actions(tws),
-        ...site_actions(tws),
-        ...lobby_actions(tws),
-        ...round_actions(tws),
-        ...tws
-    }
-}
-
-function website_actions(tws: TestWebSocket): WebsiteActions {
-    return {
-        page_site() {
-            tws.path('site')
-        },
-        page_lobby() {
-            tws.path('lobby')
-        },
-        page_round(id: string) {
-            tws.path(`round$${id}`)
-        }
-    }
-}
-
-function round_actions(tws: TestWebSocket): RoundActions {
-    return {}
-}
-
-function site_actions(tws: TestWebSocket): SiteActions {
-    return {}
-}
-
-function lobby_actions(tws: TestWebSocket): LobbyActions {
-    return {
-        hadd(time_control: string) {
-            tws.send({t: 'hadd', d: time_control})
-        },
-        hjoin(id: string) {
-            tws.send({t: 'hjoin', d: id})
-        },
-        async pull_hlist(): Promise<void> {
-            return await tws.pull_t('hlist')
-        },
-        async pull_hadd(): Promise<void> {
-            return await tws.pull_t('hadd')
-        },
-        async pull_hrem(): Promise<void> {
-            return await tws.pull_t('hrem')
-        },
-        async pull_redirect(delay?: number): Promise<any> {
-            return await tws.pull_t('game_redirect', delay)
-        }
-    }
-}
-
-describe('round', { retry: 8}, () => {
+describe('round', () => {
     it('works', async () => {
 
         let w = await wac()
@@ -104,7 +29,7 @@ describe('round', { retry: 8}, () => {
     })
 
 
-    it('works', async () => {
+    it.only('gets white or black', async () => {
 
         let w = await wac()
         let w2 = await wac()
@@ -123,6 +48,24 @@ describe('round', { retry: 8}, () => {
         await w.page_round(game_redirect)
         await w2.page_round(game_redirect)
 
+        let t = await get(game_redirect, w.sid)
+        let t2 = await get(game_redirect, w2.sid)
+
+        expect(t.text.includes('Your Turn') || t2.text.includes('Your Turn')).toBeTruthy()
+
+        let is_white = t.text.includes('Your Turn')
+
+        let [white, black] = [w, w2]
+        if (!is_white) {
+            [white, black] = [black, white]
+        }
+
+        white.move('e3@e2e4')
+
+        let move = await black.pull_move()
+
+        expect(move).toBeTruthy()
+        expect(move).toStrictEqual(await white.pull_move())
 
         await Promise.all([w.close(), w2.close()])
     })
